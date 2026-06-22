@@ -2,8 +2,8 @@ package br.ufc.smd.ecommercecopa.service;
 
 import br.ufc.smd.ecommercecopa.dto.category.CategoryListResponse;
 import br.ufc.smd.ecommercecopa.dto.category.CategoryResponse;
-import br.ufc.smd.ecommercecopa.dto.category.CreateCategoryRequest;
-import br.ufc.smd.ecommercecopa.dto.category.UpdateCategoryRequest;
+import br.ufc.smd.ecommercecopa.dto.category.CreateCategoryFormRequest;
+import br.ufc.smd.ecommercecopa.dto.category.UpdateCategoryFormRequest;
 import br.ufc.smd.ecommercecopa.exception.AppException;
 import br.ufc.smd.ecommercecopa.model.Category;
 import br.ufc.smd.ecommercecopa.repository.CategoryRepository;
@@ -17,6 +17,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class CategoryService {
@@ -24,13 +25,16 @@ public class CategoryService {
     private final AuthService authService;
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
+    private final UploadService uploadService;
 
     public CategoryService(AuthService authService,
                            CategoryRepository categoryRepository,
-                           ProductRepository productRepository) {
+                           ProductRepository productRepository,
+                           UploadService uploadService) {
         this.authService = authService;
         this.categoryRepository = categoryRepository;
         this.productRepository = productRepository;
+        this.uploadService = uploadService;
     }
 
     @Transactional(readOnly = true)
@@ -58,44 +62,56 @@ public class CategoryService {
     }
 
     @Transactional
-    public CategoryResponse create(CreateCategoryRequest request, HttpSession session) {
+    public CategoryResponse create(CreateCategoryFormRequest request, HttpSession session) {
         authService.requireAdmin(session);
 
-        String title = normalizeTitle(request.title());
+        String title = normalizeTitle(request.getTitle());
         Category category = new Category();
         category.setTitle(title);
         category.setSlug(generateUniqueSlug(title, null));
-        category.setImage(normalizeOptionalText(request.image()));
-        category.setFeatured(Boolean.TRUE.equals(request.featured()));
+        category.setImage(saveOptionalImage(request.getImage()));
+        category.setFeatured(Boolean.TRUE.equals(request.getFeatured()));
 
         return toResponse(categoryRepository.save(category));
     }
 
     @Transactional
-    public CategoryResponse update(UUID id, UpdateCategoryRequest request, HttpSession session) {
+    public CategoryResponse update(UUID id, UpdateCategoryFormRequest request, HttpSession session) {
         authService.requireAdmin(session);
 
-        boolean hasTitle = request.title() != null;
-        boolean hasImage = request.image() != null;
-        boolean hasFeatured = request.featured() != null;
-        if (!hasTitle && !hasImage && !hasFeatured) {
+        boolean imageUploaded = hasUploadedImage(request.getImage());
+        boolean removeImage = Boolean.TRUE.equals(request.getRemoveImage());
+        if (imageUploaded && removeImage) {
+            throw new AppException("BUSINESS_RULE_VIOLATION", "Não é possível enviar e remover a imagem no mesmo request", HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+
+        boolean hasTitle = request.getTitle() != null && !request.getTitle().isBlank();
+        boolean hasFeatured = request.getFeatured() != null;
+        if (!hasTitle && !imageUploaded && !removeImage && !hasFeatured) {
             throw new AppException("BUSINESS_RULE_VIOLATION", "Informe ao menos um campo para atualizar", HttpStatus.UNPROCESSABLE_ENTITY);
         }
 
         Category category = requireCategory(id);
+        String previousImage = category.getImage();
         if (hasTitle) {
-            String title = normalizeTitle(request.title());
+            String title = normalizeTitle(request.getTitle());
             category.setTitle(title);
             category.setSlug(generateUniqueSlug(title, category.getId()));
         }
-        if (hasImage) {
-            category.setImage(normalizeOptionalText(request.image()));
+        if (removeImage) {
+            category.setImage(null);
+        } else if (imageUploaded) {
+            category.setImage(uploadService.saveImage(request.getImage(), "categories"));
         }
         if (hasFeatured) {
-            category.setFeatured(Boolean.TRUE.equals(request.featured()));
+            category.setFeatured(Boolean.TRUE.equals(request.getFeatured()));
         }
 
-        return toResponse(categoryRepository.save(category));
+        CategoryResponse response = toResponse(categoryRepository.save(category));
+        if ((removeImage || imageUploaded) && previousImage != null && !previousImage.equals(category.getImage())) {
+            uploadService.deleteByPublicPath(previousImage);
+        }
+        return response;
     }
 
     @Transactional
@@ -123,14 +139,22 @@ public class CategoryService {
         if (title == null || title.isBlank()) {
             throw new AppException("BUSINESS_RULE_VIOLATION", "Título é obrigatório", HttpStatus.UNPROCESSABLE_ENTITY);
         }
-        return title.trim();
+        String normalized = title.trim();
+        if (normalized.length() < 2 || normalized.length() > 80) {
+            throw new AppException("BUSINESS_RULE_VIOLATION", "Título deve ter entre 2 e 80 caracteres", HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+        return normalized;
     }
 
-    private String normalizeOptionalText(String value) {
-        if (value == null || value.isBlank()) {
+    private String saveOptionalImage(MultipartFile image) {
+        if (!hasUploadedImage(image)) {
             return null;
         }
-        return value.trim();
+        return uploadService.saveImage(image, "categories");
+    }
+
+    private boolean hasUploadedImage(MultipartFile image) {
+        return image != null && !image.isEmpty();
     }
 
     private Sort categorySort() {
