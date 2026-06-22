@@ -10,11 +10,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -31,11 +34,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiErrorResponse> handleMethodArgumentNotValid(MethodArgumentNotValidException ex) {
         LOGGER.warn("Validation error: {}", ex.getMessage());
-        List<FieldDetail> details = ex.getBindingResult()
-                .getFieldErrors()
-                .stream()
-                .map(this::mapFieldError)
-                .toList();
+        List<FieldDetail> details = mapFieldErrors(ex.getBindingResult().getFieldErrors());
+
+        return ResponseEntity.badRequest()
+                .body(new ApiErrorResponse(new ErrorBody("VALIDATION_ERROR", "Dados inválidos", details)));
+    }
+
+    @ExceptionHandler(BindException.class)
+    public ResponseEntity<ApiErrorResponse> handleBindException(BindException ex) {
+        LOGGER.warn("Bind error: {}", ex.getMessage());
+        List<FieldDetail> details = mapFieldErrors(ex.getBindingResult().getFieldErrors());
 
         return ResponseEntity.badRequest()
                 .body(new ApiErrorResponse(new ErrorBody("VALIDATION_ERROR", "Dados inválidos", details)));
@@ -61,9 +69,27 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
                 .body(new ApiErrorResponse(new ErrorBody(
                         "UNSUPPORTED_MEDIA_TYPE",
-                        "use Content-Type application/json",
+                        "Content-Type deve ser application/json ou multipart/form-data, conforme a rota",
                         List.of()
                 )));
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ApiErrorResponse> handleMissingServletRequestPart(MissingServletRequestPartException ex) {
+        LOGGER.warn("Missing multipart part: {}", ex.getMessage());
+        return ResponseEntity.badRequest()
+                .body(new ApiErrorResponse(new ErrorBody(
+                        "VALIDATION_ERROR",
+                        "Dados inválidos",
+                        List.of(new FieldDetail(ex.getRequestPartName(), "Campo multipart obrigatório"))
+                )));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException ex) {
+        LOGGER.warn("Max upload size exceeded: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(new ApiErrorResponse(new ErrorBody("UPLOAD_TOO_LARGE", "Arquivo excede o tamanho máximo permitido", List.of())));
     }
 
     @ExceptionHandler(Exception.class)
@@ -76,5 +102,11 @@ public class GlobalExceptionHandler {
     private FieldDetail mapFieldError(FieldError fieldError) {
         String message = fieldError.getDefaultMessage() == null ? "Valor inválido" : fieldError.getDefaultMessage();
         return new FieldDetail(fieldError.getField(), message);
+    }
+
+    private List<FieldDetail> mapFieldErrors(List<FieldError> fieldErrors) {
+        return fieldErrors.stream()
+                .map(this::mapFieldError)
+                .toList();
     }
 }

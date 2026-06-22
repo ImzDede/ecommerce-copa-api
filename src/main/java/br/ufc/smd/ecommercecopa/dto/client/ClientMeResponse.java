@@ -6,6 +6,7 @@ public record ClientMeResponse(
         UUID userId,
         String name,
         String email,
+        String profilePhoto,
         String cpf,
         String dateOfBirth
 ) {

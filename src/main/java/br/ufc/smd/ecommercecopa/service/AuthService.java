@@ -77,13 +77,16 @@ public class AuthService {
         User user = userRepository.findByEmail(normalizedEmail)
                 .orElseThrow(() -> new AppException("AUTH_INVALID_CREDENTIALS", "Email ou senha inválidos", HttpStatus.UNAUTHORIZED));
 
+        if (user.getDeletedAt() != null) {
+            throw new AppException("AUTH_INVALID_CREDENTIALS", "Email ou senha inválidos", HttpStatus.UNAUTHORIZED);
+        }
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new AppException("AUTH_INVALID_CREDENTIALS", "Email ou senha inválidos", HttpStatus.UNAUTHORIZED);
         }
 
         session.setAttribute(SessionKeys.AUTH_USER_ID, user.getId());
 
-        return new AuthUserResponse(user.getId(), user.getName(), user.getEmail(), user.getRole().name(), true);
+        return toResponse(user);
     }
 
     public void logout(HttpSession session) {
@@ -92,7 +95,7 @@ public class AuthService {
 
     public AuthUserResponse me(HttpSession session) {
         User user = requireSessionUser(session);
-        return new AuthUserResponse(user.getId(), user.getName(), user.getEmail(), user.getRole().name(), true);
+        return toResponse(user);
     }
 
     public User requireSessionUser(HttpSession session) {
@@ -101,11 +104,43 @@ public class AuthService {
             throw new AppException("AUTH_REQUIRED", "Sessão inválida ou expirada", HttpStatus.UNAUTHORIZED);
         }
 
-        return userRepository.findById(userId)
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AppException("AUTH_REQUIRED", "Sessão inválida ou expirada", HttpStatus.UNAUTHORIZED));
+        if (user.getDeletedAt() != null) {
+            throw new AppException("AUTH_REQUIRED", "Sessão inválida ou expirada", HttpStatus.UNAUTHORIZED);
+        }
+        return user;
+    }
+
+    public User requireAdmin(HttpSession session) {
+        User user = requireSessionUser(session);
+        if (user.getRole() != UserRole.ADMIN) {
+            throw new AppException("FORBIDDEN", "Apenas administrador pode acessar este recurso", HttpStatus.FORBIDDEN);
+        }
+        return user;
+    }
+
+    public Client requireClient(HttpSession session) {
+        User user = requireSessionUser(session);
+        if (user.getRole() != UserRole.CLIENT) {
+            throw new AppException("FORBIDDEN", "Apenas cliente pode acessar este recurso", HttpStatus.FORBIDDEN);
+        }
+        return clientRepository.findById(user.getId())
+                .orElseThrow(() -> new AppException("RESOURCE_NOT_FOUND", "Cliente não encontrado", HttpStatus.NOT_FOUND));
     }
 
     private String normalizeEmail(String email) {
         return email == null ? null : email.trim().toLowerCase();
+    }
+
+    private AuthUserResponse toResponse(User user) {
+        return new AuthUserResponse(
+                user.getId(),
+                user.getName(),
+                user.getEmail(),
+                user.getRole().name(),
+                user.getProfilePhoto(),
+                true
+        );
     }
 }

@@ -7,6 +7,7 @@ public record AuthUserResponse(
         String name,
         String email,
         String role,
+        String profilePhoto,
         Boolean authenticated
 ) {
 }

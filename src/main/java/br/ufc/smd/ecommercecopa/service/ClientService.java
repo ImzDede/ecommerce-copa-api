@@ -9,6 +9,7 @@ import br.ufc.smd.ecommercecopa.model.UserRole;
 import br.ufc.smd.ecommercecopa.repository.ClientRepository;
 import br.ufc.smd.ecommercecopa.repository.UserRepository;
 import jakarta.servlet.http.HttpSession;
+import java.time.LocalDateTime;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -87,8 +88,8 @@ public class ClientService {
         User user = authService.requireSessionUser(session);
         ensureClient(user);
 
-        clientRepository.deleteById(user.getId());
-        userRepository.deleteById(user.getId());
+        user.setDeletedAt(LocalDateTime.now());
+        userRepository.save(user);
         session.invalidate();
     }
 
@@ -104,6 +105,7 @@ public class ClientService {
                 user.getId(),
                 user.getName(),
                 user.getEmail(),
+                user.getProfilePhoto(),
                 client.getCpf(),
                 client.getDateOfBirth().toString()
         );
