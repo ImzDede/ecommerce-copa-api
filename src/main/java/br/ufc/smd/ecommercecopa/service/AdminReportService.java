@@ -57,6 +57,7 @@ public class AdminReportService {
     private static final java.awt.Color SLATE_100 = new java.awt.Color(241, 245, 249);
     private static final java.awt.Color BLUE_50 = new java.awt.Color(239, 246, 255);
     private static final java.awt.Color BLUE_100 = new java.awt.Color(219, 234, 254);
+    private static final int OUT_OF_STOCK_DESCRIPTION_LIMIT = 180;
 
     public AdminReportService(AuthService authService,
                               OrderRepository orderRepository,
@@ -139,18 +140,18 @@ public class AdminReportService {
                 .map(item -> List.of(
                         ReportCell.image(item.photo()),
                         ReportCell.text(safeUuid(item.skuId())),
-                        ReportCell.text(safeText(item.description(), "Sem descrição")),
+                        ReportCell.text(safeText(item.name(), "Sem nome")),
                         ReportCell.text(safeText(item.categoryTitle(), "Sem categoria")),
-                        ReportCell.text(String.valueOf(item.stock() == null ? 0 : item.stock())),
+                        ReportCell.text(truncate(safeText(item.description(), "Sem descrição"), OUT_OF_STOCK_DESCRIPTION_LIMIT)),
                         ReportCell.text(formatCurrency(item.price()))
                 ))
                 .toList();
 
         return buildPdf(
                 "Produtos Sem Estoque",
-                "SKUs ativos com estoque zerado ou negativo",
-                new String[]{"Foto", "ID", "Descrição", "Categoria", "Estoque", "Preço"},
-                new float[]{1.1f, 3.2f, 3.2f, 2f, 1f, 1.5f},
+                "SKUs ativos com estoque zerado",
+                new String[]{"Foto", "ID", "Nome", "Categoria", "Descrição", "Preço"},
+                new float[]{1.1f, 3.1f, 2.2f, 1.7f, 3.4f, 1.4f},
                 rows
         );
     }
@@ -276,6 +277,7 @@ public class AdminReportService {
         PdfPCell cell = new PdfPCell(new Phrase(safeText(reportCell.text(), ""), font));
         cell.setPadding(7f);
         cell.setBorderColor(SLATE_200);
+        cell.setVerticalAlignment(Element.ALIGN_TOP);
         table.addCell(cell);
     }
 
@@ -308,6 +310,7 @@ public class AdminReportService {
                 sku.getId(),
                 sku.getProduct().getId(),
                 firstPhoto(sku),
+                sku.getTitle(),
                 sku.getDescription() == null || sku.getDescription().isBlank() ? sku.getTitle() : sku.getDescription(),
                 sku.getStock(),
                 sku.getPrice(),
@@ -331,6 +334,13 @@ public class AdminReportService {
 
     private String safeText(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, maxLength - 3)).stripTrailing() + "...";
     }
 
     private Path resolvePublicUpload(String publicPath) {

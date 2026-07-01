@@ -7,6 +7,7 @@ public record OutOfStockSkuReportItem(
         UUID skuId,
         UUID productId,
         String photo,
+        String name,
         String description,
         Integer stock,
         BigDecimal price,

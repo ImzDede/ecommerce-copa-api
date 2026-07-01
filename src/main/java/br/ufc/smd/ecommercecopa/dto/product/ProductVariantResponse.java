@@ -1,6 +1,7 @@
 package br.ufc.smd.ecommercecopa.dto.product;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -11,6 +12,6 @@ public record ProductVariantResponse(
         BigDecimal price,
         BigDecimal originalPrice,
         Integer stock,
-        String photo,
+        List<String> photos,
         Map<String, Object> attributes
 ) {}

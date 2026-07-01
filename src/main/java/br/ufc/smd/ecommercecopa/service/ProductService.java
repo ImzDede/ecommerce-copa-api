@@ -77,7 +77,7 @@ public class ProductService {
                 s.getPrice(),
                 s.getOriginalPrice(),
                 s.getStock(),
-                firstPhoto(s),
+                safePhotos(s),
                 s.getAttributes()
         )).collect(Collectors.toList());
 
@@ -205,6 +205,142 @@ public class ProductService {
     }
 
     @Transactional
+    public ProductAdminResponse updateMetadata(UUID id, ProductUpdateRequest request, HttpSession session) {
+        authService.requireAdmin(session);
+        validateProductUpdateRequest(request);
+
+        Product product = requireActiveProduct(id);
+        boolean nameChanged = false;
+        String updatedName = null;
+
+        if (request.name() != null) {
+            updatedName = normalizeRequiredText(request.name(), 2, 160, "Nome deve ter entre 2 e 160 caracteres");
+            nameChanged = !Objects.equals(product.getName(), updatedName);
+            product.setName(updatedName);
+        }
+        if (request.categoryId() != null) {
+            product.setCategory(requireCategory(request.categoryId()));
+        }
+
+        productRepository.save(product);
+
+        if (nameChanged) {
+            syncSingleVariantTitleIfOptionless(product, updatedName);
+        }
+
+        return toAdminResponse(product);
+    }
+
+    @Transactional
+    public ProductAdminResponse createVariant(UUID productId,
+                                              ProductVariantUpsertRequest request,
+                                              List<MultipartFile> images,
+                                              HttpSession session) {
+        authService.requireAdmin(session);
+        validateVariantRequest(request);
+        Product product = requireActiveProduct(productId);
+
+        if (extractSelectorKeys(product).isEmpty()
+                && !skuRepository.findByProduct_IdAndDeletedAtIsNull(product.getId()).isEmpty()) {
+            throw new AppException("BUSINESS_RULE_VIOLATION", "Produto sem variações deve possuir apenas uma variante", HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+
+        Sku sku = new Sku();
+        sku.setProduct(product);
+        applyVariantData(product, sku, request);
+        sku.setPhotos(savePhotos(images));
+        skuRepository.save(sku);
+
+        return toAdminResponse(product);
+    }
+
+    @Transactional
+    public ProductAdminResponse updateVariant(UUID productId,
+                                              UUID skuId,
+                                              ProductVariantUpsertRequest request,
+                                              HttpSession session) {
+        authService.requireAdmin(session);
+        validateVariantRequest(request);
+        Product product = requireActiveProduct(productId);
+        Sku sku = requireActiveSku(productId, skuId);
+
+        applyVariantData(product, sku, request);
+        skuRepository.save(sku);
+
+        return toAdminResponse(product);
+    }
+
+    @Transactional
+    public ProductAdminResponse addVariantPhoto(UUID productId, UUID skuId, MultipartFile image, HttpSession session) {
+        authService.requireAdmin(session);
+        Product product = requireActiveProduct(productId);
+        Sku sku = requireActiveSku(productId, skuId);
+
+        List<String> photos = new ArrayList<>(safePhotos(sku));
+        photos.add(uploadService.saveImage(image, "products"));
+        sku.setPhotos(photos);
+        skuRepository.save(sku);
+
+        return toAdminResponse(product);
+    }
+
+    @Transactional
+    public ProductAdminResponse deleteVariantPhoto(UUID productId, UUID skuId, String photo, HttpSession session) {
+        authService.requireAdmin(session);
+        Product product = requireActiveProduct(productId);
+        Sku sku = requireActiveSku(productId, skuId);
+
+        String normalizedPhoto = normalizePhotoPath(photo);
+        List<String> currentPhotos = safePhotos(sku);
+        if (!currentPhotos.contains(normalizedPhoto)) {
+            throw new AppException("RESOURCE_NOT_FOUND", "Foto não encontrada para esta variante", HttpStatus.NOT_FOUND);
+        }
+
+        List<String> updatedPhotos = new ArrayList<>(currentPhotos);
+        updatedPhotos.remove(normalizedPhoto);
+        sku.setPhotos(updatedPhotos);
+        skuRepository.save(sku);
+        uploadService.deleteByPublicPath(normalizedPhoto);
+
+        return toAdminResponse(product);
+    }
+
+    @Transactional
+    public ProductAdminResponse reorderVariantPhotos(UUID productId,
+                                                     UUID skuId,
+                                                     ProductVariantPhotoOrderRequest request,
+                                                     HttpSession session) {
+        authService.requireAdmin(session);
+        Product product = requireActiveProduct(productId);
+        Sku sku = requireActiveSku(productId, skuId);
+        validatePhotoOrder(request, safePhotos(sku));
+
+        sku.setPhotos(new ArrayList<>(request.photos()));
+        skuRepository.save(sku);
+
+        return toAdminResponse(product);
+    }
+
+    @Transactional
+    public void deleteVariant(UUID productId, UUID skuId, HttpSession session) {
+        authService.requireAdmin(session);
+        requireActiveProduct(productId);
+        List<Sku> activeSkus = skuRepository.findByProduct_IdAndDeletedAtIsNull(productId);
+        Sku target = activeSkus.stream()
+                .filter(sku -> sku.getId().equals(skuId))
+                .findFirst()
+                .orElseThrow(() -> new AppException("RESOURCE_NOT_FOUND", "SKU não encontrado", HttpStatus.NOT_FOUND));
+
+        if (activeSkus.size() <= 1) {
+            throw new AppException("BUSINESS_RULE_VIOLATION", "Produto deve possuir ao menos uma variante", HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+
+        target.setDeletedAt(LocalDateTime.now());
+        safePhotos(target).forEach(uploadService::deleteByPublicPath);
+        skuRepository.save(target);
+    }
+
+    @Transactional
     public void delete(UUID id, HttpSession session) {
         authService.requireAdmin(session);
         Product product = requireActiveProduct(id);
@@ -229,6 +365,12 @@ public class ProductService {
     private Category requireCategory(UUID id) {
         return categoryRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new AppException("RESOURCE_NOT_FOUND", "Categoria não encontrada", HttpStatus.NOT_FOUND));
+    }
+
+    private Sku requireActiveSku(UUID productId, UUID skuId) {
+        return skuRepository.findByIdAndDeletedAtIsNull(skuId)
+                .filter(sku -> sku.getProduct().getId().equals(productId))
+                .orElseThrow(() -> new AppException("RESOURCE_NOT_FOUND", "SKU não encontrado", HttpStatus.NOT_FOUND));
     }
 
     private Map<String, Object> validateSchema(List<ProductAdminRequest.OptionRequest> options) {
@@ -331,6 +473,41 @@ public class ProductService {
         }
     }
 
+    private void validateProductUpdateRequest(ProductUpdateRequest request) {
+        if (request == null || request.name() == null && request.categoryId() == null) {
+            throw new AppException("VALIDATION_ERROR", "Informe ao menos um campo para atualizar", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    private void validateVariantRequest(ProductVariantUpsertRequest request) {
+        if (request == null) {
+            throw new AppException("VALIDATION_ERROR", "Dados da variante são obrigatórios", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    private String normalizePhotoPath(String photo) {
+        if (photo == null || photo.isBlank()) {
+            throw new AppException("VALIDATION_ERROR", "Foto é obrigatória", HttpStatus.BAD_REQUEST);
+        }
+        return photo.trim();
+    }
+
+    private void validatePhotoOrder(ProductVariantPhotoOrderRequest request, List<String> currentPhotos) {
+        if (request == null || request.photos() == null) {
+            throw new AppException("VALIDATION_ERROR", "Lista de fotos é obrigatória", HttpStatus.BAD_REQUEST);
+        }
+
+        List<String> requestedPhotos = request.photos().stream()
+                .map(this::normalizePhotoPath)
+                .toList();
+        Set<String> requestedSet = new LinkedHashSet<>(requestedPhotos);
+        Set<String> currentSet = new LinkedHashSet<>(currentPhotos);
+
+        if (requestedSet.size() != requestedPhotos.size() || requestedPhotos.size() != currentPhotos.size() || !requestedSet.equals(currentSet)) {
+            throw new AppException("VALIDATION_ERROR", "Lista de fotos deve conter exatamente as fotos atuais da variante", HttpStatus.BAD_REQUEST);
+        }
+    }
+
     private List<ProductVariantRequest> requireVariants(List<ProductVariantRequest> variants) {
         if (variants == null || variants.isEmpty()) {
             throw new AppException("BUSINESS_RULE_VIOLATION", "O produto deve possuir ao menos uma variante", HttpStatus.UNPROCESSABLE_ENTITY);
@@ -395,6 +572,29 @@ public class ProductService {
         return stock;
     }
 
+    private void applyVariantData(Product product, Sku sku, ProductVariantUpsertRequest request) {
+        sku.setTitle(normalizeVariantTitle(request.title(), product.getName()));
+        sku.setDescription(normalizeVariantDescription(request.description()));
+        sku.setPrice(validatePrice(request.price()));
+        sku.setOriginalPrice(validateOriginalPrice(request.price(), request.originalPrice()));
+        sku.setStock(validateStock(request.stock()));
+        sku.setAttributes(validateAttributes(product, request.attributes()));
+    }
+
+    private List<String> savePhotos(List<MultipartFile> files) {
+        if (files == null || files.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> photos = new java.util.ArrayList<>();
+        for (MultipartFile file : files) {
+            if (file != null && !file.isEmpty()) {
+                photos.add(uploadService.saveImage(file, "products"));
+            }
+        }
+        return photos;
+    }
+
     private List<String> saveVariantPhotos(ProductVariantRequest variant,
                                            int variantIndex,
                                            List<MultipartFile> variantImages,
@@ -417,13 +617,7 @@ public class ProductService {
             files.add(variantImages.get(variantIndex));
         }
 
-        List<String> photos = new java.util.ArrayList<>();
-        for (MultipartFile file : files) {
-            if (file != null && !file.isEmpty()) {
-                photos.add(uploadService.saveImage(file, "products"));
-            }
-        }
-        return photos;
+        return savePhotos(files);
     }
 
     private String coverImage(Product product) {
@@ -436,9 +630,22 @@ public class ProductService {
                 .orElse(null);
     }
 
-    private String firstPhoto(Sku sku) {
+    private List<String> safePhotos(Sku sku) {
         List<String> photos = sku.getPhotos();
-        return photos == null || photos.isEmpty() ? null : photos.getFirst();
+        return photos == null ? List.of() : photos;
+    }
+
+    private void syncSingleVariantTitleIfOptionless(Product product, String title) {
+        if (!extractSelectorKeys(product).isEmpty()) {
+            return;
+        }
+
+        List<Sku> activeSkus = skuRepository.findByProduct_IdAndDeletedAtIsNull(product.getId());
+        if (activeSkus.size() == 1) {
+            Sku sku = activeSkus.getFirst();
+            sku.setTitle(title);
+            skuRepository.save(sku);
+        }
     }
 
     private ProductAdminResponse toAdminResponse(Product product) {
@@ -452,7 +659,7 @@ public class ProductService {
                 s.getPrice(),
                 s.getOriginalPrice(),
                 s.getStock(),
-                firstPhoto(s),
+                safePhotos(s),
                 s.getAttributes()
         )).collect(Collectors.toList());
 

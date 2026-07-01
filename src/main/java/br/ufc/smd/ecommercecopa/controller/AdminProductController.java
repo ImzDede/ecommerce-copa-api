@@ -85,26 +85,85 @@ public class AdminProductController {
                 session)));
     }
 
-    @PatchMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "Atualizar product",
-            description = "Atualiza Product e sincroniza variantes/SKUs. Variantes ausentes no payload são removidas por soft delete. No Swagger, use variantImage0 para a imagem de variants[0], variantImage1 para variants[1] etc.",
+    @PatchMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Atualizar dados básicos do product",
+            description = "Atualiza somente metadados do Product. Não cria, remove ou sincroniza variantes/SKUs.")
+    public ResponseEntity<ApiResponse<ProductAdminResponse>> update(
+            @PathVariable UUID id,
+            @RequestBody ProductUpdateRequest request,
+            HttpSession session) {
+        return ResponseEntity.ok(new ApiResponse<>(productService.updateMetadata(id, request, session)));
+    }
+
+    @PostMapping(value = "/{productId}/variants", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Criar variante do product",
+            description = "Cria uma única variante/SKU para um Product existente. Envie imagens opcionais nos campos images, images[], images[0], image0, image1 etc.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
                     content = @Content(mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
-                            schema = @Schema(implementation = ProductMultipartRequest.class),
+                            schema = @Schema(implementation = ProductVariantMultipartRequest.class),
                             encoding = @Encoding(name = "data", contentType = MediaType.APPLICATION_JSON_VALUE))))
-    public ResponseEntity<ApiResponse<ProductAdminResponse>> update(
-            @PathVariable UUID id,
+    public ResponseEntity<ApiResponse<ProductAdminResponse>> createVariant(
+            @PathVariable UUID productId,
             @Parameter(hidden = true)
             @RequestPart("data") String dataJson,
             @Parameter(hidden = true)
             MultipartHttpServletRequest multipartRequest,
             HttpSession session) {
-        ProductAdminRequest request = parseData(dataJson);
-        return ResponseEntity.ok(new ApiResponse<>(productService.updateAtomic(id, request,
-                collectFiles(multipartRequest, "variantImages"),
-                collectVariantImagesByVariant(multipartRequest),
-                session)));
+        ProductVariantUpsertRequest request = parseVariantData(dataJson);
+        return ResponseEntity.status(201).body(new ApiResponse<>(productService.createVariant(productId, request, collectVariantFiles(multipartRequest), session)));
+    }
+
+    @PatchMapping(value = "/{productId}/variants/{skuId}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Atualizar variante do product",
+            description = "Atualiza dados de uma única variante/SKU. Fotos são gerenciadas pelas rotas específicas de fotos.",
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = ProductVariantUpsertRequest.class))))
+    public ResponseEntity<ApiResponse<ProductAdminResponse>> updateVariant(
+            @PathVariable UUID productId,
+            @PathVariable UUID skuId,
+            @RequestBody ProductVariantUpsertRequest request,
+            HttpSession session) {
+        return ResponseEntity.ok(new ApiResponse<>(productService.updateVariant(productId, skuId, request, session)));
+    }
+
+    @PostMapping(value = "/{productId}/variants/{skuId}/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Adicionar foto à variante", description = "Adiciona uma foto ao final da galeria da variante/SKU.")
+    public ResponseEntity<ApiResponse<ProductAdminResponse>> addVariantPhoto(
+            @PathVariable UUID productId,
+            @PathVariable UUID skuId,
+            @RequestPart("image") MultipartFile image,
+            HttpSession session) {
+        return ResponseEntity.status(201).body(new ApiResponse<>(productService.addVariantPhoto(productId, skuId, image, session)));
+    }
+
+    @DeleteMapping("/{productId}/variants/{skuId}/photos")
+    @Operation(summary = "Excluir foto da variante", description = "Remove uma foto específica da galeria da variante/SKU. Envie o caminho público da foto no query param photo.")
+    public ResponseEntity<ApiResponse<ProductAdminResponse>> deleteVariantPhoto(
+            @PathVariable UUID productId,
+            @PathVariable UUID skuId,
+            @RequestParam String photo,
+            HttpSession session) {
+        return ResponseEntity.ok(new ApiResponse<>(productService.deleteVariantPhoto(productId, skuId, photo, session)));
+    }
+
+    @PatchMapping(value = "/{productId}/variants/{skuId}/photos/reorder", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Reordenar fotos da variante", description = "Recebe exatamente as fotos atuais da variante na nova ordem desejada.")
+    public ResponseEntity<ApiResponse<ProductAdminResponse>> reorderVariantPhotos(
+            @PathVariable UUID productId,
+            @PathVariable UUID skuId,
+            @RequestBody ProductVariantPhotoOrderRequest request,
+            HttpSession session) {
+        return ResponseEntity.ok(new ApiResponse<>(productService.reorderVariantPhotos(productId, skuId, request, session)));
+    }
+
+    @DeleteMapping("/{productId}/variants/{skuId}")
+    @Operation(summary = "Excluir variante do product", description = "Faz soft delete de uma variante/SKU, mantendo as demais variantes ativas.")
+    public ResponseEntity<Void> deleteVariant(@PathVariable UUID productId, @PathVariable UUID skuId, HttpSession session) {
+        productService.deleteVariant(productId, skuId, session);
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")
@@ -120,6 +179,29 @@ public class AdminProductController {
         } catch (JsonProcessingException exception) {
             throw new AppException("VALIDATION_ERROR", "Campo data deve ser um JSON válido", HttpStatus.BAD_REQUEST);
         }
+    }
+
+    private ProductVariantUpsertRequest parseVariantData(String dataJson) {
+        try {
+            return objectMapper.readValue(dataJson, ProductVariantUpsertRequest.class);
+        } catch (JsonProcessingException exception) {
+            throw new AppException("VALIDATION_ERROR", "Campo data deve ser um JSON válido", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    private List<MultipartFile> collectVariantFiles(MultipartHttpServletRequest request) {
+        List<MultipartFile> files = new ArrayList<>();
+        addNonEmpty(files, request.getFiles("images"));
+        addNonEmpty(files, request.getFiles("images[]"));
+        addNonEmpty(files, request.getFiles("image"));
+        addNonEmpty(files, request.getFiles("image0"));
+        addNonEmpty(files, request.getFiles("image1"));
+        addNonEmpty(files, request.getFiles("image2"));
+
+        collectIndexedFiles(request, "images").values()
+                .forEach(indexedFiles -> addNonEmpty(files, indexedFiles));
+
+        return files;
     }
 
     private List<MultipartFile> collectFiles(MultipartHttpServletRequest request, String baseName) {

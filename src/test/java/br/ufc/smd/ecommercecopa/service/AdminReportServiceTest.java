@@ -95,6 +95,7 @@ class AdminReportServiceTest {
 
         assertEquals(sku.getId(), response.items().getFirst().skuId());
         assertEquals("/uploads/products/chuteira-1.webp", response.items().getFirst().photo());
+        assertEquals("Chuteira Campo 40", response.items().getFirst().name());
         assertEquals("Chuteira para campo", response.items().getFirst().description());
         assertEquals("Chuteiras", response.items().getFirst().categoryTitle());
     }
