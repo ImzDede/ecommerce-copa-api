@@ -10,6 +10,7 @@ import br.ufc.smd.ecommercecopa.model.User;
 import br.ufc.smd.ecommercecopa.model.UserRole;
 import br.ufc.smd.ecommercecopa.repository.AdminRepository;
 import br.ufc.smd.ecommercecopa.repository.UserRepository;
+import br.ufc.smd.ecommercecopa.repository.ClientRepository;
 import jakarta.servlet.http.HttpSession;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,6 +35,9 @@ class AdminServiceTest {
     private UserRepository userRepository;
 
     @Mock
+    private ClientRepository clientRepository;
+
+    @Mock
     private PasswordEncoder passwordEncoder;
 
     @Mock
@@ -43,7 +47,7 @@ class AdminServiceTest {
 
     @BeforeEach
     void setUp() {
-        adminService = new AdminService(authService, adminRepository, userRepository, passwordEncoder);
+        adminService = new AdminService(authService, adminRepository, userRepository, clientRepository, passwordEncoder);
     }
 
     @Test

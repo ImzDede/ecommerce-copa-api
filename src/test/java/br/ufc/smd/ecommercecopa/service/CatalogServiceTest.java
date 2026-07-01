@@ -157,7 +157,7 @@ class CatalogServiceTest {
         sku.setDescription("Chuteira para campo");
         sku.setPrice(new BigDecimal("399.90"));
         sku.setOriginalPrice(new BigDecimal("499.90"));
-        sku.setPhoto("https://example.com/photo.jpg");
+        sku.setPhotos(List.of("https://example.com/photo.jpg"));
         sku.setStock(stock);
         sku.setAttributes(Map.of("size", "40"));
         return sku;

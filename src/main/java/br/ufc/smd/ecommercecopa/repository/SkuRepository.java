@@ -66,7 +66,7 @@ public interface SkuRepository extends JpaRepository<Sku, UUID> {
             where s.deletedAt is null
               and p.deletedAt is null
               and s.stock <= 0
-            order by s.title asc
+            order by lower(s.description) asc, lower(s.title) asc
             """)
     List<Sku> findOutOfStockSkus();
 

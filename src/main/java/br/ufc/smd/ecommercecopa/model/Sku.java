@@ -12,7 +12,9 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -42,8 +44,9 @@ public class Sku {
     @Column(name = "original_price", precision = 12, scale = 2)
     private BigDecimal originalPrice;
 
-    @Column(columnDefinition = "text")
-    private String photo;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "photos", columnDefinition = "jsonb")
+    private List<String> photos = new ArrayList<>();
 
     @Column(nullable = false)
     private Integer stock;
@@ -109,12 +112,12 @@ public class Sku {
         this.originalPrice = originalPrice;
     }
 
-    public String getPhoto() {
-        return photo;
+    public List<String> getPhotos() {
+        return photos;
     }
 
-    public void setPhoto(String photo) {
-        this.photo = photo;
+    public void setPhotos(List<String> photos) {
+        this.photos = photos;
     }
 
     public Integer getStock() {

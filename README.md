@@ -10,6 +10,7 @@ API backend da aplicação Ecommerce Copa, desenvolvida com Spring Boot, autenti
 - Spring Data JPA
 - Spring Security
 - PostgreSQL
+- OpenPDF
 - Maven Wrapper (`mvnw`)
 
 ## Pré-requisitos
@@ -63,7 +64,7 @@ As rotas protegidas usam autenticação por cookie de sessão (`JSESSIONID`). Pa
 
 ## Uploads
 
-- Imagens enviadas para foto de perfil e foto de SKU são salvas localmente em `uploads/`.
+- Imagens enviadas para foto de perfil e variantes/SKUs são salvas localmente em `uploads/`.
 - A API serve os arquivos por `/uploads/**`, por exemplo `/uploads/products/arquivo.jpg`.
 - Formatos aceitos: `image/jpeg`, `image/png` e `image/webp`.
 - A pasta `uploads/` é ignorada pelo Git.
@@ -94,4 +95,4 @@ Fluxo:
 ## Documentação
 
 - Arquitetura e Convenções: `docs/arquitetura-e-convencoes.md`
-- Rotas da API: `docs/rotas.md`
+- Rotas da API: Swagger UI em `http://localhost:8080/swagger-ui.html`

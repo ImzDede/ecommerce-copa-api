@@ -2,12 +2,17 @@ package br.ufc.smd.ecommercecopa.service;
 
 import br.ufc.smd.ecommercecopa.dto.admin.AdminMeResponse;
 import br.ufc.smd.ecommercecopa.dto.admin.UpdateAdminMeRequest;
+import br.ufc.smd.ecommercecopa.dto.client.ClientResponse;
 import br.ufc.smd.ecommercecopa.exception.AppException;
 import br.ufc.smd.ecommercecopa.model.Admin;
+import br.ufc.smd.ecommercecopa.model.Client;
 import br.ufc.smd.ecommercecopa.model.User;
 import br.ufc.smd.ecommercecopa.repository.AdminRepository;
+import br.ufc.smd.ecommercecopa.repository.ClientRepository;
 import br.ufc.smd.ecommercecopa.repository.UserRepository;
 import jakarta.servlet.http.HttpSession;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -19,16 +24,27 @@ public class AdminService {
     private final AuthService authService;
     private final AdminRepository adminRepository;
     private final UserRepository userRepository;
+    private final ClientRepository clientRepository;
     private final PasswordEncoder passwordEncoder;
 
     public AdminService(AuthService authService,
                         AdminRepository adminRepository,
                         UserRepository userRepository,
+                        ClientRepository clientRepository,
                         PasswordEncoder passwordEncoder) {
         this.authService = authService;
         this.adminRepository = adminRepository;
         this.userRepository = userRepository;
+        this.clientRepository = clientRepository;
         this.passwordEncoder = passwordEncoder;
+    }
+
+    @Transactional(readOnly = true)
+    public List<ClientResponse> listClients(HttpSession session) {
+        authService.requireAdmin(session);
+        return clientRepository.findAll().stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -72,6 +88,11 @@ public class AdminService {
 
         userRepository.save(user);
         return toResponse(admin);
+    }
+
+    private ClientResponse toResponse(Client client) {
+        User user = client.getUser();
+        return new ClientResponse(client.getUserId(), user.getName(), user.getEmail(), client.getCpf(), client.getDateOfBirth());
     }
 
     private AdminMeResponse toResponse(Admin admin) {

@@ -6,7 +6,8 @@ import java.util.UUID;
 public record OutOfStockSkuReportItem(
         UUID skuId,
         UUID productId,
-        String title,
+        String photo,
+        String description,
         Integer stock,
         BigDecimal price,
         String categorySlug,

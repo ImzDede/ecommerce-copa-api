@@ -12,6 +12,7 @@ Este documento descreve a organização do código, as convenções adotadas e o
 - Bean Validation
 - PostgreSQL
 - Springdoc OpenAPI
+- OpenPDF para geração de relatórios PDF
 
 ## 2. Organização em Camadas
 
@@ -96,8 +97,9 @@ Na prática, `@MapsId` significa que a linha de `clients` ou `admins` reutiliza 
 
 - Mapeada para tabela `products`.
 - Representa o produto base ou agrupador visual.
+- Guarda `name` para a visão administrativa centrada no produto.
 - Possui FK para `categories`.
-- Possui campo `schema` em JSONB para definir quais atributos variáveis os SKUs devem ter.
+- Possui campo `schema` em JSONB para persistir internamente as opções de variação que o frontend envia como `options[]`.
 - Possui `deletedAt` para soft delete.
 - A exclusão administrativa de um product marca o próprio product e todos os SKUs vinculados como deletados.
 
@@ -123,8 +125,9 @@ Exemplo de `schema`:
 - Mapeada para tabela `skus`.
 - Representa a unidade comprável de fato.
 - Possui FK para `products`.
-- Guarda `title`, `description`, `price`, `originalPrice`, `photo`, `stock` e `attributes`.
-- `photo` armazena o caminho da imagem enviada via multipart, não a imagem binária.
+- Guarda `title`, `description`, `price`, `originalPrice`, `photos`, `stock` e `attributes`.
+- `photos` armazena os caminhos das imagens enviadas via multipart, não a imagem binária.
+- Respostas de visualização expõem apenas `photo`, derivado da primeira imagem de `photos`.
 - Possui `deletedAt` para remover do catálogo sem quebrar histórico futuro de compras.
 
 Exemplo de `attributes`:
@@ -193,12 +196,13 @@ Exemplo de `attributes`:
 
 - `Category` organiza a navegação pública.
 - `Product` agrupa SKUs relacionados e define o schema de seleção.
-- `Sku` é a unidade comprável, com preço, foto, estoque e atributos.
+- `Sku` é a unidade comprável, com descrição, preço, fotos, estoque e atributos.
 - O catálogo público deve listar SKUs ativos e em estoque.
 - A página de produto deve abrir por `Product` e exibir os SKUs relacionados.
 - Products e SKUs com `deletedAt` preenchido não devem aparecer para o cliente.
-- O CRUD admin de SKUs valida se `attributes` contém exatamente as mesmas chaves definidas em `product.schema.selectors`.
-- Ao mover um SKU para outro product, os atributos do SKU precisam ser compatíveis com o schema do product de destino.
+- O CRUD admin é centrado em `Product`: criação e atualização sincronizam produto, opções e variantes/SKUs em um único payload multipart.
+- A descrição e as imagens pertencem às variantes/SKUs, não ao Product.
+- As variantes validam se `attributes` contém exatamente as mesmas chaves definidas em `product.schema.selectors`; produtos sem opções aceitam `attributes` vazio.
 - Reviews públicas são listadas por SKU em `/api/catalog/skus/{skuId}/reviews`.
 - Listagens públicas de SKU retornam `rating` e `reviewCount` calculados a partir das reviews.
 - `GET /api/catalog/skus` aceita múltiplas categorias e ordenação `sort=rating`.
@@ -220,6 +224,10 @@ Rotas públicas de catálogo:
 - O período considera o dia inicial e o dia final.
 - Pedidos cancelados são ignorados nos relatórios financeiros.
 - SKUs sem estoque lista apenas SKUs e products ativos.
+- Os endpoints de relatório retornam `application/pdf` diretamente.
+- Compras por cliente são ordenadas por quantidade de compras descrescente.
+- SKUs sem estoque são ordenados pela descrição de forma ascendente.
+- Receita diária é ordenada pela data de forma ascendente.
 
 ## 5. Funcionamento do Spring Data JPA no Projeto
 
@@ -398,7 +406,7 @@ Convenções:
 Usos atuais:
 
 - `PATCH /api/users/me/photo` salva foto de perfil em `/uploads/profiles/`.
-- `POST /api/admin/skus` e `PATCH /api/admin/skus/{id}` salvam foto de SKU em `/uploads/products/`.
+- `POST /api/admin/products` e `PATCH /api/admin/products/{id}` salvam imagens das variantes/SKUs em `/uploads/products/`.
 
 ## 11. Documentação OpenAPI
 

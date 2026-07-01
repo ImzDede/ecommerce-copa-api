@@ -1,7 +1,6 @@
 package br.ufc.smd.ecommercecopa.dto.catalog;
 
 import br.ufc.smd.ecommercecopa.dto.tag.TagResponse;
-import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -18,11 +17,7 @@ public record CatalogSkuResponse(
         Integer stock,
         Double rating,
         Long reviewCount,
-
-        @Schema(description = "Valores dos atributos do SKU.",
-                example = "{\"cape\": \"Dura\", \"version\": \"Dourado\"}")
         Map<String, Object> attributes,
-
         CatalogCategoryResponse category,
         List<TagResponse> tags
 ) {

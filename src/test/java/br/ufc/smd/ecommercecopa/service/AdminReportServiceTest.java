@@ -6,17 +6,16 @@ import static org.mockito.Mockito.when;
 
 import br.ufc.smd.ecommercecopa.exception.AppException;
 import br.ufc.smd.ecommercecopa.model.Category;
+import br.ufc.smd.ecommercecopa.model.Order;
 import br.ufc.smd.ecommercecopa.model.OrderStatus;
 import br.ufc.smd.ecommercecopa.model.Product;
 import br.ufc.smd.ecommercecopa.model.Sku;
 import br.ufc.smd.ecommercecopa.model.User;
+import br.ufc.smd.ecommercecopa.model.Client;
 import br.ufc.smd.ecommercecopa.repository.OrderRepository;
 import br.ufc.smd.ecommercecopa.repository.SkuRepository;
-import br.ufc.smd.ecommercecopa.repository.projection.ClientPurchasesProjection;
-import br.ufc.smd.ecommercecopa.repository.projection.DailyRevenueProjection;
 import jakarta.servlet.http.HttpSession;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -47,18 +46,21 @@ class AdminReportServiceTest {
 
     @BeforeEach
     void setUp() {
-        adminReportService = new AdminReportService(authService, orderRepository, skuRepository);
+        adminReportService = new AdminReportService(authService, orderRepository, skuRepository, "uploads");
         when(authService.requireAdmin(session)).thenReturn(new User());
     }
 
     @Test
     void purchasesByClientUsesInclusiveDateRange() {
         UUID clientId = UUID.randomUUID();
-        when(orderRepository.findClientPurchasesReport(
+        when(orderRepository.findReportOrders(
                 LocalDateTime.parse("2026-01-01T00:00:00"),
                 LocalDateTime.parse("2026-02-01T00:00:00"),
                 OrderStatus.CANCELED
-        )).thenReturn(List.of(clientPurchases(clientId, "Maria", 2L, new BigDecimal("300.00"))));
+        )).thenReturn(List.of(
+                order(LocalDateTime.parse("2026-01-10T10:00:00"), new BigDecimal("100.00"), clientId, "Maria"),
+                order(LocalDateTime.parse("2026-01-11T10:00:00"), new BigDecimal("200.00"), clientId, "Maria")
+        ));
 
         var response = adminReportService.purchasesByClient("2026-01-01", "2026-01-31", session);
 
@@ -68,16 +70,20 @@ class AdminReportServiceTest {
     }
 
     @Test
-    void dailyRevenueMapsRepositoryProjection() {
-        when(orderRepository.findDailyRevenueReport(
+    void dailyRevenueAggregatesOrdersByDay() {
+        when(orderRepository.findReportOrders(
                 LocalDateTime.parse("2026-01-01T00:00:00"),
-                LocalDateTime.parse("2026-01-03T00:00:00")
-        )).thenReturn(List.of(dailyRevenue(LocalDate.parse("2026-01-01"), new BigDecimal("150.00"))));
+                LocalDateTime.parse("2026-01-03T00:00:00"),
+                OrderStatus.CANCELED
+        )).thenReturn(List.of(
+                order(LocalDateTime.parse("2026-01-01T10:00:00"), new BigDecimal("150.00")),
+                order(LocalDateTime.parse("2026-01-01T12:00:00"), new BigDecimal("50.00"))
+        ));
 
         var response = adminReportService.dailyRevenue("2026-01-01", "2026-01-02", session);
 
         assertEquals("2026-01-01", response.items().getFirst().day());
-        assertEquals(new BigDecimal("150.00"), response.items().getFirst().totalValue());
+        assertEquals(new BigDecimal("200.00"), response.items().getFirst().totalValue());
     }
 
     @Test
@@ -88,6 +94,8 @@ class AdminReportServiceTest {
         var response = adminReportService.outOfStockSkus(session);
 
         assertEquals(sku.getId(), response.items().getFirst().skuId());
+        assertEquals("/uploads/products/chuteira-1.webp", response.items().getFirst().photo());
+        assertEquals("Chuteira para campo", response.items().getFirst().description());
         assertEquals("Chuteiras", response.items().getFirst().categoryTitle());
     }
 
@@ -99,42 +107,25 @@ class AdminReportServiceTest {
         assertEquals("VALIDATION_ERROR", exception.getCode());
     }
 
-    private ClientPurchasesProjection clientPurchases(UUID clientId, String clientName, long totalOrders, BigDecimal totalValue) {
-        return new ClientPurchasesProjection() {
-            @Override
-            public UUID getClientId() {
-                return clientId;
-            }
-
-            @Override
-            public String getClientName() {
-                return clientName;
-            }
-
-            @Override
-            public Long getTotalOrders() {
-                return totalOrders;
-            }
-
-            @Override
-            public BigDecimal getTotalValue() {
-                return totalValue;
-            }
-        };
+    private Order order(LocalDateTime createdAt, BigDecimal totalValue) {
+        Order order = new Order();
+        ReflectionTestUtils.setField(order, "createdAt", createdAt);
+        order.setTotalValue(totalValue);
+        return order;
     }
 
-    private DailyRevenueProjection dailyRevenue(LocalDate day, BigDecimal totalValue) {
-        return new DailyRevenueProjection() {
-            @Override
-            public LocalDate getDay() {
-                return day;
-            }
+    private Order order(LocalDateTime createdAt, BigDecimal totalValue, UUID clientId, String clientName) {
+        User user = new User();
+        ReflectionTestUtils.setField(user, "id", clientId);
+        user.setName(clientName);
 
-            @Override
-            public BigDecimal getTotalValue() {
-                return totalValue;
-            }
-        };
+        Client client = new Client();
+        ReflectionTestUtils.setField(client, "userId", clientId);
+        client.setUser(user);
+
+        Order order = order(createdAt, totalValue);
+        order.setClient(client);
+        return order;
     }
 
     private Sku sku(UUID id) {
@@ -156,6 +147,7 @@ class AdminReportServiceTest {
         sku.setPrice(new BigDecimal("399.90"));
         sku.setStock(0);
         sku.setAttributes(Map.of("size", "40"));
+        sku.setPhotos(List.of("/uploads/products/chuteira-1.webp", "/uploads/products/chuteira-2.webp"));
         return sku;
     }
 }

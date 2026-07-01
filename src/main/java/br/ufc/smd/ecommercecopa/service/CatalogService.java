@@ -132,7 +132,7 @@ public class CatalogService {
                 sku.getDescription(),
                 sku.getPrice(),
                 sku.getOriginalPrice(),
-                sku.getPhoto(),
+                firstPhoto(sku),
                 sku.getStock(),
                 stats.rating(),
                 stats.reviewCount(),
@@ -150,7 +150,7 @@ public class CatalogService {
                 sku.getDescription(),
                 sku.getPrice(),
                 sku.getOriginalPrice(),
-                sku.getPhoto(),
+                firstPhoto(sku),
                 sku.getStock(),
                 stats.rating(),
                 stats.reviewCount(),
@@ -161,6 +161,11 @@ public class CatalogService {
 
     private CatalogCategoryResponse toCategoryResponse(Category category) {
         return new CatalogCategoryResponse(category.getId(), category.getSlug(), category.getTitle(), category.getImage(), category.isFeatured());
+    }
+
+    private String firstPhoto(Sku sku) {
+        List<String> photos = sku.getPhotos();
+        return photos == null || photos.isEmpty() ? null : photos.getFirst();
     }
 
     private Sort resolveSort(String sort) {

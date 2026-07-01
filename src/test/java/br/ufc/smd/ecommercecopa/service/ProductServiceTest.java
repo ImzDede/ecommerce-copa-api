@@ -9,7 +9,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import br.ufc.smd.ecommercecopa.dto.product.CreateProductRequest;
+import br.ufc.smd.ecommercecopa.dto.product.ProductAdminRequest;
+import br.ufc.smd.ecommercecopa.dto.product.ProductVariantRequest;
 import br.ufc.smd.ecommercecopa.exception.AppException;
 import br.ufc.smd.ecommercecopa.model.Category;
 import br.ufc.smd.ecommercecopa.model.Product;
@@ -18,7 +19,10 @@ import br.ufc.smd.ecommercecopa.model.User;
 import br.ufc.smd.ecommercecopa.repository.CategoryRepository;
 import br.ufc.smd.ecommercecopa.repository.ProductRepository;
 import br.ufc.smd.ecommercecopa.repository.SkuRepository;
+import br.ufc.smd.ecommercecopa.service.UploadService;
 import jakarta.servlet.http.HttpSession;
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,24 +51,29 @@ class ProductServiceTest {
     private SkuRepository skuRepository;
 
     @Mock
+    private UploadService uploadService;
+
+    @Mock
     private HttpSession session;
 
     private ProductService productService;
 
     @BeforeEach
     void setUp() {
-        productService = new ProductService(authService, productRepository, categoryRepository, skuRepository);
+        productService = new ProductService(authService, productRepository, categoryRepository, skuRepository, uploadService);
         doReturn(new User()).when(authService).requireAdmin(session);
     }
 
     @Test
-    void createRejectsSchemaWithoutSelectors() {
+    void createRejectsProductWithoutVariants() {
         UUID categoryId = UUID.randomUUID();
-        when(categoryRepository.findByIdAndDeletedAtIsNull(categoryId)).thenReturn(Optional.of(category(categoryId)));
 
-        AppException exception = assertThrows(AppException.class, () -> productService.create(
-                new CreateProductRequest(categoryId, Map.of("fields", List.of())),
-                session
+        ProductAdminRequest request = new ProductAdminRequest(
+                "Produto Teste", categoryId, List.of(), List.of()
+        );
+
+        AppException exception = assertThrows(AppException.class, () -> productService.createAtomic(
+                request, null, session
         ));
 
         assertEquals("BUSINESS_RULE_VIOLATION", exception.getCode());
@@ -77,12 +86,15 @@ class ProductServiceTest {
         UUID categoryId = UUID.randomUUID();
         when(categoryRepository.findByIdAndDeletedAtIsNull(categoryId)).thenReturn(Optional.of(category(categoryId)));
 
-        AppException exception = assertThrows(AppException.class, () -> productService.create(
-                new CreateProductRequest(categoryId, Map.of("selectors", List.of(
-                        Map.of("key", "size", "label", "Tamanho"),
-                        Map.of("key", "size", "label", "Numeração")
-                ))),
-                session
+        ProductAdminRequest request = new ProductAdminRequest(
+                "Produto Teste", categoryId, List.of(
+                        new ProductAdminRequest.OptionRequest("size", "Tamanho"),
+                        new ProductAdminRequest.OptionRequest("size", "Numeração")
+                ), List.of(validVariant(Map.of("size", "40")))
+        );
+
+        AppException exception = assertThrows(AppException.class, () -> productService.createAtomic(
+                request, null, session
         ));
 
         assertEquals("BUSINESS_RULE_VIOLATION", exception.getCode());
@@ -125,5 +137,9 @@ class ProductServiceTest {
         ReflectionTestUtils.setField(sku, "id", id);
         sku.setProduct(product);
         return sku;
+    }
+
+    private ProductVariantRequest validVariant(Map<String, Object> attributes) {
+        return new ProductVariantRequest(null, "Variante", "Descrição da variante", new BigDecimal("10.00"), null, 5, attributes, List.of());
     }
 }

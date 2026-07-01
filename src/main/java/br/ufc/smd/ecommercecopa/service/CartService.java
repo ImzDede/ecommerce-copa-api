@@ -133,11 +133,16 @@ public class CartService {
                 sku.getProduct().getId(),
                 sku.getTitle(),
                 sku.getPrice(),
-                sku.getPhoto(),
+                firstPhoto(sku),
                 sku.getStock(),
                 cart.getAmount(),
                 subtotal,
                 sku.getAttributes()
         );
+    }
+
+    private String firstPhoto(Sku sku) {
+        List<String> photos = sku.getPhotos();
+        return photos == null || photos.isEmpty() ? null : photos.getFirst();
     }
 }

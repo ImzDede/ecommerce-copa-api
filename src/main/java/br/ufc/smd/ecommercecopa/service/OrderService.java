@@ -207,9 +207,14 @@ public class OrderService {
                 item.getPrice(),
                 item.getAmount(),
                 item.getPrice().multiply(BigDecimal.valueOf(item.getAmount())),
-                sku.getPhoto(),
+                firstPhoto(sku),
                 sku.getAttributes()
         );
+    }
+
+    private String firstPhoto(Sku sku) {
+        List<String> photos = sku.getPhotos();
+        return photos == null || photos.isEmpty() ? null : photos.getFirst();
     }
 
     private AddressResponse toAddressResponse(Address address) {
